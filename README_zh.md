@@ -1,24 +1,22 @@
 <div align="center">
 <p align="center">
-<img alt="" src="./docs/logo.png" style="display: inline-block; height: 140px" />
+<img alt="" src="./docs/logo.jpg" style="display: inline-block; height: 140px" />
 </p>
 </div>
 
 <div align="center">
 <p align="center">
-      <a href="https://github.com/OpenRLHF/OpenRLHF/graphs/contributors">
-        <img alt="GitHub Contributors" src="https://img.shields.io/github/contributors/OpenRLHF/OpenRLHF" />
+      <a href="https://github.com/OpenRLHF/OpenRLHF-M/graphs/contributors">
+        <img alt="GitHub Contributors" src="https://img.shields.io/github/contributors/OpenRLHF/OpenRLHF-M" />
       </a>
-      <a href="https://github.com/OpenRLHF/OpenRLHF/issues">
-        <img alt="Issues" src="https://img.shields.io/github/issues/OpenRLHF/OpenRLHF?color=0088ff" />
+      <a href="https://github.com/OpenRLHF/OpenRLHF-M/issues">
+        <img alt="Issues" src="https://img.shields.io/github/issues/OpenRLHF/OpenRLHF-M?color=0088ff" />
       </a>
-      <a href="https://github.com/OpenRLHF/OpenRLHF/discussions">
-        <img alt="Issues" src="https://img.shields.io/github/discussions/OpenRLHF/OpenRLHF?color=0088ff" />
+      <a href="https://github.com/OpenRLHF/OpenRLHF-M/pulls">
+        <img alt="GitHub pull requests" src="https://img.shields.io/github/issues-pr/OpenRLHF/OpenRLHF-M?color=0088ff" />
       </a>
-      <a href="https://github.com/OpenRLHF/OpenRLHF/pulls">
-        <img alt="GitHub pull requests" src="https://img.shields.io/github/issues-pr/OpenRLHF/OpenRLHF?color=0088ff" />
-      <a href="https://github.com/OpenRLHF/OpenRLHF/stargazers">
-        <img alt="GitHub stars" src="https://img.shields.io/github/stars/OpenRLHF/OpenRLHF?color=ccf" />
+      <a href="https://github.com/OpenRLHF/OpenRLHF-M/stargazers">
+        <img alt="GitHub stars" src="https://img.shields.io/github/stars/OpenRLHF/OpenRLHF-M?color=ccf" />
       </a>
       <br>
       <em>开源 / 全面 / 轻量级 / 易用</em>
