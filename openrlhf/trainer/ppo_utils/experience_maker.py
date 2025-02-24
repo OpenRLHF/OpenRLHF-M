@@ -1,8 +1,9 @@
+import os
 import time
 from abc import ABC
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple, Union, Dict
 
 import ray
 import torch
@@ -59,6 +60,7 @@ class Experience:
     action_mask: Optional[torch.BoolTensor]
     info: Optional[dict]
     kl: Optional[torch.Tensor] = None
+    visual_inputs: Optional[dict] = field(default_factory=dict)
 
     @torch.no_grad()
     def to_device(self, device: torch.device):
@@ -72,6 +74,8 @@ class Experience:
         self.action_mask = to(self.action_mask, device)
         self.kl = to(self.kl, device)
         self.info = {key: to(value, device) for key, value in self.info.items()}
+        if self.visual_inputs is not None:
+            self.visual_inputs = {key: to(value, device) for key, value in self.visual_inputs.items()}
         return self
 
     def pin_memory(self):
@@ -85,6 +89,8 @@ class Experience:
         self.action_mask = pin_memory(self.action_mask)
         self.kl = pin_memory(self.kl)
         self.info = {key: pin_memory(value) for key, value in self.info.items()}
+        if self.visual_inputs is not None:
+            self.visual_inputs = {key: pin_memory(value) for key, value in self.visual_inputs.items()}
         return self
 
 
@@ -109,6 +115,7 @@ class Samples:
     response_length: (B,), the number of tokens in the response.
     total_length: (B,), the total number of tokens in the sequences.
     prompts: the prompts used to generate responses
+    visual_inputs: the visual input for vlm training
     """
 
     sequences: torch.Tensor
@@ -120,6 +127,7 @@ class Samples:
     total_length: torch.Tensor
     prompts: list[str]
     labels: list[str]
+    visual_inputs: Optional[Dict]
 
 
 class NaiveExperienceMaker(ABC):
@@ -134,6 +142,7 @@ class NaiveExperienceMaker(ABC):
         reward_model: nn.Module,
         initial_model: Actor,
         tokenizer,
+        data_processor,
         prompt_max_len: int,
         kl_controller,
         strategy=None,
@@ -147,6 +156,7 @@ class NaiveExperienceMaker(ABC):
         self.remote_rm_url = remote_rm_url
         self.initial_model = initial_model
         self.tokenizer = tokenizer
+        self.data_processor = data_processor
         self.prompt_max_len = prompt_max_len
         self.kl_ctl = kl_controller
         self.strategy = strategy
@@ -271,7 +281,16 @@ class NaiveExperienceMaker(ABC):
         for i in range(0, len(all_prompts), args.micro_rollout_batch_size):
             prompts = all_prompts[i : i + args.micro_rollout_batch_size]
             labels = all_labels[i : i + args.micro_rollout_batch_size]
-            inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
+            if self.data_processor is not None:
+                inputs = self.data_processor(prompts, self.prompt_max_len, device="cuda")
+                visual_inputs = {}
+                for k,v in inputs.items():
+                    if k not in ["input_ids", "attention_mask"]:
+                        visual_inputs[k] = v
+            else:
+                inputs = self.tokenize_fn(prompts, self.prompt_max_len, device="cuda")
+                visual_inputs = None
+
             sequences, attention_mask, action_mask = self.actor.generate(**inputs, **generate_kwargs)
             samples = Samples(
                 sequences=sequences,
@@ -283,6 +302,7 @@ class NaiveExperienceMaker(ABC):
                 total_length=attention_mask.float().sum(dim=-1),
                 prompts=prompts,
                 labels=labels,
+                visual_inputs=visual_inputs,
             )
             samples_list.append(samples)
         return samples_list
@@ -305,19 +325,20 @@ class NaiveExperienceMaker(ABC):
         attention_mask = samples.attention_mask
         action_mask = samples.action_mask
         num_actions = samples.num_actions
+        visual_inputs = samples.visual_inputs
 
         # log probs
-        action_log_probs = self.actor(sequences, num_actions, attention_mask)
+        action_log_probs = self.actor(sequences, num_actions, attention_mask, visual_inputs=visual_inputs)
 
         # init log probs
         if self.initial_model is not None:
-            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
+            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask, visual_inputs=visual_inputs)
         else:
             base_action_log_probs = None
 
         # values
         if self.critic is not None:
-            value = self.critic(sequences, num_actions, attention_mask)
+            value = self.critic(sequences, num_actions, attention_mask, visual_inputs=visual_inputs)
         else:
             value = None
 
@@ -358,7 +379,7 @@ class NaiveExperienceMaker(ABC):
         self.actor.train()
         if self.critic is not None:
             self.critic.train()
-
+        assert len(visual_inputs) > 0
         return Experience(
             sequences,
             action_log_probs,
@@ -370,6 +391,7 @@ class NaiveExperienceMaker(ABC):
             action_mask,
             info,
             kl,
+            visual_inputs=visual_inputs
         )
 
     @torch.no_grad()
@@ -535,6 +557,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                 # send experience to critic
                 experience_cpu = deepcopy(experience)
                 experience_cpu.to_device("cpu")
+                assert len(experience_cpu.visual_inputs) > 0
                 self._ref = self.critic.append.remote(experience_cpu)
         return experiences
 
@@ -576,17 +599,20 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         action_mask = samples.action_mask
         num_actions = samples.num_actions
         packed_seq_lens = samples.packed_seq_lens
+        visual_inputs = samples.visual_inputs
 
         start = time.time()
         sequences_cpu, attention_mask_cpu = (
             sequences.to("cpu"),
             attention_mask.to("cpu"),
         )
-
+        visual_inputs_cpu = None
+        if visual_inputs is not None:
+            visual_inputs_cpu = {k: v.to("cpu") for k, v in visual_inputs.items()}        
         # init log probs
         if self.initial_model is not None:
             base_action_log_probs_ref = self.initial_model.forward.remote(
-                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens,visual_inputs=visual_inputs_cpu
             )
 
             if args.colocate_actor_ref or args.colocate_all_models:
@@ -598,7 +624,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # values
         if self.critic is not None:
             value_ref = self.critic.forward.remote(
-                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens
+                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens, visual_inputs=visual_inputs_cpu
             )
             # avoid CUDA OOM when colocate models
             if args.colocate_critic_reward or args.colocate_all_models:
@@ -612,7 +638,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # support remote RM API with ray
         if not self.remote_rm_url:
             for rm in self.reward_model:
-                r_refs.append(rm.forward.remote(sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens))
+                r_refs.append(rm.forward.remote(sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens, visual_inputs=visual_inputs_cpu))
         else:
             # remote RM
             if not self.packing_samples:
@@ -639,7 +665,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             ray.get([self.reward_model[0].empty_cache.remote()])
 
         # log probs
-        action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=packed_seq_lens)
+        action_log_probs = self.actor(sequences, num_actions, attention_mask, packed_seq_lens=packed_seq_lens,visual_inputs=visual_inputs)
         actor_value_rm_time = time.time() - start
 
         # wait initial/critic/reward model done
@@ -702,7 +728,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         if self.strategy.args.perf:
             self.perf_stats["actor_value_rm_time"] += actor_value_rm_time
             self.perf_stats["wait_time"] += wait_time
-
+        assert len(visual_inputs) > 0
         experience = Experience(
             sequences,
             action_log_probs,
@@ -714,6 +740,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             action_mask,
             info,
             kl,
+            visual_inputs=visual_inputs
         )
 
         self.actor.train()  # reset model state
@@ -747,16 +774,38 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # Expand prompt list based on the number of samples per prompt
         all_prompts = sum([[prompt] * args.n_samples_per_prompt for prompt in all_prompts], [])
         all_labels = sum([[label] * args.n_samples_per_prompt for label in all_labels], [])
-        all_prompt_token_ids = self.tokenize_fn(all_prompts, self.prompt_max_len, padding=False)["input_ids"]
 
+        batch_size = (len(all_prompts) + len(llms) - 1) // len(llms)
         # Distribute requests to engines and collect responses to outputs
         refs = []
-        batch_size = (len(all_prompt_token_ids) + len(llms) - 1) // len(llms)
-        for i, llm in enumerate(llms):
-            prompt_token_ids = all_prompt_token_ids[i * batch_size : (i + 1) * batch_size]
-            refs.append(
-                llm.add_requests.remote(rank, sampling_params=sampling_params, prompt_token_ids=prompt_token_ids)
-            )
+        if self.data_processor is None:
+            # For LLM
+            all_prompt_token_ids = self.tokenize_fn(all_prompts, self.prompt_max_len, padding=False)["input_ids"]
+            for i, llm in enumerate(llms):
+                prompt_token_ids = all_prompt_token_ids[i * batch_size : (i + 1) * batch_size]
+                refs.append(
+                    llm.add_requests.remote(rank, sampling_params=sampling_params, prompt_token_ids=prompt_token_ids)
+                )
+        else:
+            # For VLM
+            for i, llm in enumerate(llms):
+                messages = all_prompts[i * batch_size : (i + 1) * batch_size]
+                if messages:
+                    prompts = self.data_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                    images = [self.data_processor.get_images_from_messages(m) for m in messages]
+                    vllm_inputs = [{
+                            "prompt": p,
+                            "multi_modal_data":{"image": imgs} if imgs else None,
+                            "mm_processor_kwargs": {
+                                "min_pixels": int(os.getenv("MIN_PIXELS", 4 * 28 * 28)),
+                                "max_pixels": int(os.getenv("MAX_PIXELS", 640 * 28 * 28)),
+                            },
+                        } for p, imgs in zip(prompts,images)]
+                    refs.append(
+                        llm.add_requests_vlm.remote(rank, sampling_params=sampling_params, vllm_vision_input=vllm_inputs)
+                    )
+
+
         ray.get(refs)
 
         # Make sure all requests are sent.
@@ -806,6 +855,14 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                 sequences = sequences.to("cuda")
                 attention_mask = attention_mask.to("cuda")
                 action_mask = action_mask.to("cuda")
+                # Collect for visual input
+                visual_inputs = None
+                if self.data_processor is not None:
+                    visual_inputs = self.data_processor(prompts, self.prompt_max_len, device="cuda")
+                    visual_inputs.pop("input_ids")
+                    visual_inputs.pop("attention_mask")
+                    visual_inputs = {k: v.to("cuda") for k, v in visual_inputs.items()}
+
                 samples_list.append(
                     Samples(
                         sequences=sequences,
@@ -817,6 +874,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                         total_length=attention_mask.float().sum(dim=-1),
                         prompts=prompts,
                         labels=labels,
+                        visual_inputs=visual_inputs,
                     )
                 )
             else:
@@ -845,6 +903,13 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                 action_mask = None
                 response_length = torch.tensor(num_actions, device="cuda", dtype=torch.float)
                 total_length = torch.tensor(packed_seq_lens, device="cuda", dtype=torch.float)
+                # Collect for visual input
+                visual_inputs = None
+                if self.data_processor is not None:
+                    visual_inputs = self.data_processor(prompts, self.prompt_max_len, device="cuda")
+                    visual_inputs.pop("input_ids")
+                    visual_inputs.pop("attention_mask")
+                    visual_inputs = {k: v.to("cuda") for k, v in visual_inputs.items()}
                 samples_list.append(
                     Samples(
                         sequences=sequences,
@@ -856,6 +921,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                         total_length=total_length,
                         prompts=prompts,
                         labels=labels,
+                        visual_inputs=visual_inputs
                     )
                 )
         return samples_list

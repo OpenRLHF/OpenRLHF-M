@@ -14,7 +14,7 @@ from openrlhf.datasets import PromptDataset, SFTDataset
 from openrlhf.models import Actor
 from openrlhf.trainer import PPOTrainer
 from openrlhf.trainer.ppo_utils import Experience, RemoteExperienceMaker
-from openrlhf.utils import blending_datasets, get_tokenizer
+from openrlhf.utils import blending_datasets, get_tokenizer, get_vl_processor
 from openrlhf.utils.deepspeed import DeepspeedStrategy
 from openrlhf.utils.distributed_util import init_process_group
 
@@ -48,6 +48,7 @@ class ActorPPOTrainer(PPOTrainer):
             self.reward_model,
             self.initial_model,
             self.tokenizer,
+            self.data_processor,
             self.prompt_max_len,
             self.kl_ctl,
             self.strategy,
@@ -256,7 +257,7 @@ class ActorPPOTrainer(PPOTrainer):
             save_path = os.path.join(args.ckpt_path, f"{tag}_hf")
             self.strategy.save_model(
                 self.ema_model if args.enable_ema else self.actor,
-                self.tokenizer,
+                self.processor or self.tokenizer,
                 save_path,
             )
         # wait
@@ -292,11 +293,28 @@ class ActorModelRayActor(BasePPORole):
             packing_samples=strategy.args.packing_samples,
         )
         strategy.print(actor)
+        # Support freeze some parameter
+        if hasattr(strategy.args, "freeze_prefix") and strategy.args.freeze_prefix:
+            frozen_count = 0
+            total_params = 0
+            for name, param in actor.model.named_parameters():
+                total_params += 1
+                if any(name.startswith(prefix) for prefix in strategy.args.freeze_prefix):
+                    param.requires_grad = False
+                    frozen_count += 1
+            strategy.print(f"Froze {frozen_count}/{total_params} parameters based on prefixes: {strategy.args.freeze_prefix}")
 
         # configure tokenizer
-        self.tokenizer = get_tokenizer(
-            pretrain, actor.model, "left", strategy, use_fast=not strategy.args.disable_fast_tokenizer
-        )
+        if args.train_vlm:
+            self.processor = get_vl_processor(
+                pretrain, actor.model, "left", strategy, use_fast=not strategy.args.disable_fast_tokenizer
+            )
+            self.tokenizer = self.processor.tokenizer
+        else:
+            self.processor = None
+            self.tokenizer = get_tokenizer(
+                pretrain, actor.model, "left", strategy, use_fast=not strategy.args.disable_fast_tokenizer
+            )
 
         if args.enable_ema:
             ema_model = Actor(
@@ -456,6 +474,7 @@ class ActorModelRayActor(BasePPORole):
             gradient_checkpointing=args.gradient_checkpointing,
             critic_train_remote=critic_train_remote,
             tokenizer=self.tokenizer,
+            processor=self.processor, 
             prompt_max_len=args.prompt_max_len,
             value_clip=args.value_clip,
             eps_clip=args.eps_clip,
@@ -498,6 +517,6 @@ class ActorModelRayActor(BasePPORole):
         # save model checkpoint after fitting on only rank0
         self.strategy.save_model(
             self.ema_model if args.enable_ema else self.actor,
-            self.tokenizer,
+            self.processor or self.tokenizer,
             args.save_path,
         )

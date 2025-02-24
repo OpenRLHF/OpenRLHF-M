@@ -327,6 +327,11 @@ if __name__ == "__main__":
     parser.add_argument("--aux_loss_coef", type=float, default=0, help="MoE balancing loss")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
     parser.add_argument("--reward_clip_range", type=float, nargs=2, default=(-10, 10), help="Reward clip range")
+    parser.add_argument("--train_vlm", action="store_true", default=False)
+    parser.add_argument("--freeze_prefix", type=str, nargs="+", default=None,
+        help="List of parameter name prefixes to freeze during training"
+    )
+    parser.add_argument("--drop_maxlen", action="store_true", default=False)
 
     # Reinforce
     parser.add_argument(
@@ -416,6 +421,14 @@ if __name__ == "__main__":
             "[Warning] input_template contains \\n chracters instead of newline. "
             "You likely want to pass $'\\n' in Bash or \"`n\" in PowerShell."
         )
+
+    if args.train_vlm: 
+        if args.packing_samples:
+            print("[Warning] --train_vlm is not supported with --packing_samples. We will set args.packing_samples to False")
+            args.packing_samples = False
+        if args.pretrain_data:
+            print("[Warning] --train_vlm is not supported with --pretrain_data. We will set args.pretrain_data to None")
+            args.pretrain_data = None
 
     if args.packing_samples:
         if not args.flash_attn:

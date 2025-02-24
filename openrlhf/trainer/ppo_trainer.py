@@ -13,7 +13,7 @@ from openrlhf.models import Actor, GPTLMLoss, PolicyLoss, ValueLoss
 from openrlhf.models.utils import masked_mean, unpacking_samples, compute_approx_kl
 from openrlhf.utils.distributed_sampler import DistributedSampler
 
-from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer
+from .ppo_utils import AdaptiveKLController, Experience, FixedKLController, NaiveExperienceMaker, NaiveReplayBuffer, DATA_PROCESSOR_MAP
 
 
 class PPOTrainer(ABC):
@@ -81,7 +81,8 @@ class PPOTrainer(ABC):
         gradient_checkpointing: bool = False,
         max_epochs: int = 1,
         max_norm: float = 1.0,
-        tokenizer: Optional[Callable[[Any], dict]] = None,
+        processor: Optional[Callable[[Any], Dict]] = None,
+        tokenizer: Optional[Callable[[Any], Dict]] = None,
         prompt_max_len: int = 128,
         dataloader_pin_memory: bool = True,
         remote_rm_url: str = None,
@@ -102,6 +103,13 @@ class PPOTrainer(ABC):
         self.micro_rollout_batch_size = micro_rollout_batch_size
         self.max_epochs = max_epochs
         self.tokenizer = tokenizer
+        self.processor = processor
+        self.data_processor = None
+        # for vlm critic model, not provice processor.
+        if self.args.train_vlm and processor is not None:
+            self.data_processor = DATA_PROCESSOR_MAP[type(processor)](processor)
+            self.tokenizer = self.data_processor.tokenizer
+
         self.generate_kwargs = generate_kwargs
         self.dataloader_pin_memory = dataloader_pin_memory
         self.max_norm = max_norm
@@ -144,6 +152,7 @@ class PPOTrainer(ABC):
             reward_model,
             initial_model,
             tokenizer,
+            self.data_processor,
             prompt_max_len,
             self.kl_ctl,
             strategy,
@@ -152,7 +161,9 @@ class PPOTrainer(ABC):
         )
         packing_samples = getattr(self.args, "packing_samples", False)
         self.replay_buffer = NaiveReplayBuffer(
-            micro_train_batch_size, buffer_limit, buffer_cpu_offload, packing_samples
+            micro_train_batch_size, self.data_processor, buffer_limit, buffer_cpu_offload, packing_samples,
+            drop_maxlen=self.args.drop_maxlen, 
+            maxlen=self.args.generate_max_len + prompt_max_len,
         )
 
         # wandb/tensorboard setting
@@ -348,6 +359,7 @@ class PPOTrainer(ABC):
             ).unsqueeze(0)
             if self.args.use_kl_loss:
                 base_action_log_probs = torch.cat(experience.base_action_log_probs, dim=0).unsqueeze(0)
+            visual_inputs = experience.visual_inputs
         else:
             sequences = experience.sequences
             old_action_log_probs = experience.action_log_probs
@@ -357,6 +369,7 @@ class PPOTrainer(ABC):
             attention_mask = experience.attention_mask
             if self.args.use_kl_loss:
                 base_action_log_probs = experience.base_action_log_probs
+            visual_inputs = experience.visual_inputs
 
         # actor loss
         action_log_probs, output = self.actor(
@@ -365,6 +378,7 @@ class PPOTrainer(ABC):
             attention_mask=attention_mask,
             return_output=True,
             packed_seq_lens=packed_seq_lens,
+            visual_inputs=visual_inputs
         )
 
         # loss function
@@ -462,6 +476,7 @@ class PPOTrainer(ABC):
             attention_mask = torch.cat(
                 [torch.full_like(s, i + 1) for i, s in enumerate(experience.sequences)], dim=0
             ).unsqueeze(0)
+            visual_inputs = experience.visual_inputs
         else:
             sequences = experience.sequences
             old_values = experience.values
@@ -469,6 +484,7 @@ class PPOTrainer(ABC):
             num_actions = experience.action_mask.size(1)
             packed_seq_lens = None
             attention_mask = experience.attention_mask
+            visual_inputs = experience.visual_inputs
 
         # critic loss
         values, output = self.critic(
@@ -477,6 +493,7 @@ class PPOTrainer(ABC):
             attention_mask=attention_mask,
             return_output=True,
             packed_seq_lens=packed_seq_lens,
+            visual_inputs=visual_inputs,
         )
         # loss function
         critic_loss = self.critic_loss_fn(
@@ -551,4 +568,4 @@ class PPOTrainer(ABC):
 
         if self.save_hf_ckpt:
             save_path = os.path.join(args.ckpt_path, f"{tag}_hf")
-            self.strategy.save_model(self.actor, self.tokenizer, save_path)
+            self.strategy.save_model(self.actor, self.processor or self.tokenizer, save_path)

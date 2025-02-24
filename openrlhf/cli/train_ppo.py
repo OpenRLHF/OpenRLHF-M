@@ -359,6 +359,11 @@ if __name__ == "__main__":
     parser.add_argument("--overlap_comm", action="store_true", default=False)
     parser.add_argument("--gradient_checkpointing_use_reentrant", action="store_true", default=False)
     parser.add_argument("--disable_fast_tokenizer", action="store_true", default=False)
+    parser.add_argument("--train_vlm", action="store_true", default=False)
+    parser.add_argument("--freeze_prefix", type=str, nargs="+", default=None,
+        help="List of parameter name prefixes to freeze during training"
+    )
+    parser.add_argument("--drop_maxlen", action="store_true", default=False)
 
     # Reinforce
     parser.add_argument(
@@ -448,6 +453,13 @@ if __name__ == "__main__":
             "[Warning] input_template contains \\n chracters instead of newline. "
             "You likely want to pass $'\\n' in Bash or \"`n\" in PowerShell."
         )
+    if args.train_vlm: 
+        if args.packing_samples:
+            print("[Warning] --train_vlm is not supported with --packing_samples. We will set args.packing_samples to False")
+            args.packing_samples = False
+        if args.pretrain_data:
+            print("[Warning] --train_vlm is not supported with --pretrain_data. We will set args.pretrain_data to None")
+            args.pretrain_data = None
 
     if args.use_ms:
         from modelscope.utils.hf_util import patch_hub

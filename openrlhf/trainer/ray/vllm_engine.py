@@ -92,6 +92,35 @@ class LLMRayActor:
             self.actor_counter = 0
             self.requests = {}
 
+    def add_requests_vlm(self, actor_rank, *, sampling_params, vllm_vision_input):
+        """
+        Save the requests from actors and generate responses when all actors have sent their requests
+        """
+        self.requests[actor_rank] = vllm_vision_input
+        self.actor_counter += 1
+        if self.actor_counter == self.num_actors:
+            assert len(self.requests) == self.num_actors
+            num_requests = []
+            requests = []
+            for actor_rank, request in self.requests.items():
+                num_requests.append((actor_rank, len(request)))
+                requests.extend(request)
+
+            if len(requests) > 0:
+                # For now we assume that all requests have the same sampling params
+                responses = self.llm.generate(requests, sampling_params=sampling_params)
+            else:
+                responses = []
+
+            offset = 0
+            self.responses = {}
+            for actor_rank, num in num_requests:
+                self.responses[actor_rank] = responses[offset : offset + num]
+                offset += num
+
+            self.actor_counter = 0
+            self.requests = {}
+
     def get_responses(self, actor_rank):
         """
         Return the responses for the actor with the given rank

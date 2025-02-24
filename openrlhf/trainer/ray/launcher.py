@@ -87,15 +87,20 @@ class ReferenceModelRayActor(BasePPORole):
         attention_mask: Optional[torch.Tensor] = None,
         return_output=False,
         packed_seq_lens: Optional[list[int]] = None,
+        visual_inputs: Optional[dict] = None,
     ) -> torch.Tensor:
+        if visual_inputs is None:
+            visual_inputs = {}
         device = torch.cuda.current_device()
         with torch.no_grad():
+            visual_inputs = {k:v.to(device) for k,v in visual_inputs.items()}
             log_probs = self.model(
                 sequences.to(device),
                 num_actions,
                 attention_mask.to(device),
                 return_output=return_output,
                 packed_seq_lens=packed_seq_lens,
+                visual_inputs=visual_inputs,
             )
         return log_probs.to("cpu")
 
@@ -129,11 +134,14 @@ class RewardModelRayActor(BasePPORole):
         self.model.eval()
 
     def forward(
-        self, sequences: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, packed_seq_lens=None
+        self, sequences: torch.LongTensor, attention_mask: Optional[torch.Tensor] = None, packed_seq_lens=None, visual_inputs: Optional[dict] = None,
     ) -> torch.Tensor:
         device = torch.cuda.current_device()
+        if visual_inputs is None:
+            visual_inputs = {}
+        visual_inputs = {k:v.to(device) for k,v in visual_inputs.items()}
         with torch.no_grad():
-            reward = self.model(sequences.to(device), attention_mask.to(device), packed_seq_lens=packed_seq_lens)
+            reward = self.model(sequences.to(device), attention_mask.to(device), packed_seq_lens=packed_seq_lens, visual_inputs=visual_inputs)
         return reward.to("cpu")
 
     def empty_cache(self) -> None:
