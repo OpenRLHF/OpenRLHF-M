@@ -23,7 +23,7 @@ ray job submit --address="http://127.0.0.1:8265" \
    --colocate_all_models \
    --vllm_enable_sleep \
    --vllm_gpu_memory_utilization 0.7 \
-   --vllm_sync_backend gloo \
+   --vllm_sync_backend nccl \
    --enable_prefix_caching \
    --pretrain $PRETRAIN_MODEL \
    --save_path $SAVE_PATH/$MODEL_CPK_NAME \
@@ -38,11 +38,11 @@ ray job submit --address="http://127.0.0.1:8265" \
    --prompt_max_len 1024 \
    --max_samples 100000 \
    --generate_max_len 3000 \
-   --advantage_estimator rloo \
+   --advantage_estimator reinforce_baseline \
    --zero_stage 3 \
    --bf16 \
    --actor_learning_rate 1e-6 \
-   --init_kl_coef 0.0 \
+   --init_kl_coef 0 \
    --prompt_data $DATASET \
    --input_key prompt \
    --normalize_reward \
@@ -53,5 +53,4 @@ ray job submit --address="http://127.0.0.1:8265" \
    --save_hf_ckpt \
    --use_tensorboard $SAVE_PATH/$MODEL_CPK_NAME/logs
 
-# also supports --advantage_estimator rloo
 ray stop
