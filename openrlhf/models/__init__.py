@@ -1,5 +1,3 @@
-from openrlhf.models.utils import load_multimodal_model_for_classification
-
 from .actor import Actor
 from .loss import (
     DPOLoss,
@@ -28,5 +26,4 @@ __all__ = [
     "ValueLoss",
     "VanillaKTOLoss",
     "get_llm_for_sequence_regression",
-    "load_multimodal_model_for_classification",
 ]
