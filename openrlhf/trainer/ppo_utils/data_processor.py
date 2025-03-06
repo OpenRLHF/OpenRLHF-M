@@ -84,7 +84,6 @@ class BaseDataProcessor(ABC):
 
 
 def add_pixel_bounds(messages):
-    # 默认的像素范围
     DEFAULT_MIN_PIXELS = int(os.getenv("MIN_PIXELS", 4 * 28 * 28))
     DEFAULT_MAX_PIXELS = int(os.getenv("MAX_PIXELS", 640 * 28 * 28))
 
