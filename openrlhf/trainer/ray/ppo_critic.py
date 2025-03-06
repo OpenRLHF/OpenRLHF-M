@@ -157,7 +157,7 @@ class CriticModelRayActor(BasePPORole):
             value_clip=args.value_clip,
             eps_clip=args.eps_clip,
             processor=self.processor,
-            tokenizer=self.tokenizer
+            tokenizer=self.tokenizer,
         )
 
     def forward(
@@ -176,7 +176,11 @@ class CriticModelRayActor(BasePPORole):
         with torch.no_grad():
             visual_inputs = {k: v.to(device) for k, v in visual_inputs.items()}
             value = self.critic(
-                sequences.to(device), num_actions, attention_mask.to(device), packed_seq_lens=packed_seq_lens, visual_inputs=visual_inputs
+                sequences.to(device),
+                num_actions,
+                attention_mask.to(device),
+                packed_seq_lens=packed_seq_lens,
+                visual_inputs=visual_inputs,
             )
         self.critic.train()  # reset model state
         return value.to("cpu")
@@ -220,6 +224,7 @@ class CriticModelRayActor(BasePPORole):
         self.strategy.save_ckpt(
             self.critic, os.path.join(args.ckpt_path, "_critic"), tag, args.max_ckpt_num, args.max_ckpt_mem
         )
+
     def reload_states(self):
         reload_deepspeed_states(self.critic)
 

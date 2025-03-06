@@ -1,16 +1,18 @@
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Dict
+from typing import Dict, List, Optional, Union
 
 import torch
 from qwen_vl_utils import process_vision_info
 from transformers import Qwen2VLProcessor
 from transformers.processing_utils import ProcessorMixin
+
 try:
     from transformers import Qwen2_5_VLProcessor
 except Exception as e:
     print("Qocal Qwen2_5_VLProcessor not found")
+
 
 class BaseDataProcessor(ABC):
     def __init__(self, processor: ProcessorMixin):
@@ -55,14 +57,12 @@ class BaseDataProcessor(ABC):
         add_generation_prompt: bool = True,
     ) -> List[str]:
         messages = self._format_messages(messages)
-        
+
         return self.processor.apply_chat_template(
             messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt
         )
 
-    def get_images_from_messages(
-        self, messages: Union[Dict, List[str], str]
-    ) -> List[Dict]:
+    def get_images_from_messages(self, messages: Union[Dict, List[str], str]) -> List[Dict]:
         messages = self._format_messages(messages)
         return self._get_images_from_messages(messages)
 
@@ -117,9 +117,7 @@ class Qwen2VLDataProcessor(BaseDataProcessor):
     ) -> Dict:
         messages = self._format_messages(messages)
         processor = self.processor
-        texts = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        texts = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         messages = add_pixel_bounds(messages)
         image_inputs, video_inputs = process_vision_info(messages)
 
@@ -162,12 +160,8 @@ class Qwen2VLDataProcessor(BaseDataProcessor):
                 for i in range(batch_size):
                     batch_kwargs[i][k] = None
 
-        if "pixel_values" in keys and (
-            "input_ids" not in keys or "image_grid_thw" not in keys
-        ):
-            raise ValueError(
-                "Cannot split batch with pixel_values without input_ids and image_grid_thw"
-            )
+        if "pixel_values" in keys and ("input_ids" not in keys or "image_grid_thw" not in keys):
+            raise ValueError("Cannot split batch with pixel_values without input_ids and image_grid_thw")
         if "image_grid_thw" in keys and ("input_ids" not in keys):
             raise ValueError("Cannot split batch with image_grid_thw without input_ids")
         for k in ["input_ids", "attention_mask"]:
@@ -218,5 +212,5 @@ class Qwen2VLDataProcessor(BaseDataProcessor):
 
 DATA_PROCESSOR_MAP = {
     Qwen2VLProcessor: Qwen2VLDataProcessor,
-    Qwen2_5_VLProcessor: Qwen2VLDataProcessor,   
+    Qwen2_5_VLProcessor: Qwen2VLDataProcessor,
 }

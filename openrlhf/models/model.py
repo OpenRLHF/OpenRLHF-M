@@ -6,14 +6,14 @@ import torch.nn as nn
 from flash_attn.utils.distributed import all_gather
 from peft import LoraConfig, get_peft_model
 from peft.tuners.lora import LoraLayer
-from transformers import AutoConfig, AutoModel, BitsAndBytesConfig
+from transformers import AutoConfig, BitsAndBytesConfig
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
 
 from openrlhf.utils.logging_utils import init_logger
 
-from .ring_attn_utils import convert_ring_attn_params, set_hacked_position_ids, clear_hacked_position_ids
-from .utils import reset_position_ids
 from ..utils.utils import get_generation_cls
+from .ring_attn_utils import clear_hacked_position_ids, convert_ring_attn_params, set_hacked_position_ids
+from .utils import reset_position_ids
 
 logger = init_logger(__name__)
 
@@ -208,7 +208,11 @@ def _get_reward_model(base_llm_model, value_head_prefix="score", packing_samples
                 attention_mask = None
 
             outputs = super().forward(
-                input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids,output_hidden_states=True, **visual_inputs
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_hidden_states=True,
+                **visual_inputs,
             )
             clear_hacked_position_ids()
             if "last_hidden_state" in outputs:
@@ -296,7 +300,11 @@ def _get_critic_model(base_llm_model, value_head_prefix="score", packing_samples
                 attention_mask = None
 
             outputs = super().forward(
-                input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids,output_hidden_states=True, **visual_inputs
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                output_hidden_states=True,
+                **visual_inputs,
             )
             clear_hacked_position_ids()
             if "last_hidden_state" in outputs:

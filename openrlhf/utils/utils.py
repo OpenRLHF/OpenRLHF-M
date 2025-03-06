@@ -1,14 +1,16 @@
 import os
 
 from datasets import interleave_datasets, load_dataset, load_from_disk
-from transformers import AutoTokenizer, AutoProcessor, AutoModel
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
 
 def get_vl_processor(pretrain, model, padding_side="left", strategy=None, use_fast=True):
     # TODO: Maybe better max_pixels set methods for other vl model
-    min_pixels = int(os.getenv("MIN_PIXELS", 4*28*28))
-    max_pixels = int(os.getenv("MAX_PIXELS", 640*28*28))
-    processor = AutoProcessor.from_pretrained(pretrain, trust_remote_code=True, use_fast=use_fast, min_pixels=min_pixels, max_pixels=max_pixels)
+    min_pixels = int(os.getenv("MIN_PIXELS", 4 * 28 * 28))
+    max_pixels = int(os.getenv("MAX_PIXELS", 640 * 28 * 28))
+    processor = AutoProcessor.from_pretrained(
+        pretrain, trust_remote_code=True, use_fast=use_fast, min_pixels=min_pixels, max_pixels=max_pixels
+    )
     tokenizer = processor.tokenizer
     tokenizer.padding_side = padding_side
     # NOTE: When enable vLLM, do not resize_token_embeddings, or the vocab size will mismatch with vLLM.
@@ -18,6 +20,7 @@ def get_vl_processor(pretrain, model, padding_side="left", strategy=None, use_fa
         tokenizer.pad_token_id = tokenizer.eos_token_id
         model.config.pad_token_id = tokenizer.pad_token_id
     return processor
+
 
 def get_tokenizer(pretrain, model, padding_side="left", strategy=None, use_fast=True):
     tokenizer = AutoTokenizer.from_pretrained(pretrain, trust_remote_code=True, use_fast=use_fast)
@@ -144,16 +147,20 @@ def convert_token_to_id(token, tokenizer):
     else:
         raise ValueError("token should be int or str")
 
+
 def get_generation_cls(config):
     model_type = config.model_type
     model_arch = AutoModel._model_mapping[type(config)].__name__
-    if model_arch.endswith("ForCausalLM") or \
-    model_arch.endswith("ForConditionalGeneration"):
+    if model_arch.endswith("ForCausalLM") or model_arch.endswith("ForConditionalGeneration"):
         return AutoModel._model_mapping[type(config)]
     elif model_arch.endswith("Model"):
-        possible_arch = [model_arch.replace("Model", "ForCausalLM"), model_arch.replace("Model", "ForConditionalGeneration")]
+        possible_arch = [
+            model_arch.replace("Model", "ForCausalLM"),
+            model_arch.replace("Model", "ForConditionalGeneration"),
+        ]
         import importlib
-        module = importlib.import_module(f".models.{model_type}.modeling_{model_type}",package="transformers")
+
+        module = importlib.import_module(f".models.{model_type}.modeling_{model_type}", package="transformers")
         for arch in possible_arch:
             model_cls = getattr(module, arch, None)
             if model_cls is not None:

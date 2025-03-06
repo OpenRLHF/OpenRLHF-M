@@ -3,16 +3,16 @@ from typing import Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torch.nn import functional as F
+from flash_attn.utils.distributed import all_gather
 from peft import LoraConfig, TaskType, get_peft_model
 from peft.tuners.lora import LoraLayer
-from transformers import BitsAndBytesConfig, AutoConfig
+from torch.nn import functional as F
+from transformers import AutoConfig, BitsAndBytesConfig
 from transformers.integrations.deepspeed import HfDeepSpeedConfig
-from flash_attn.utils.distributed import all_gather
 
-from .ring_attn_utils import convert_ring_attn_params, set_hacked_position_ids, clear_hacked_position_ids
-from .utils import log_probs_from_logits, reset_position_ids
 from ..utils.utils import get_generation_cls
+from .ring_attn_utils import clear_hacked_position_ids, convert_ring_attn_params, set_hacked_position_ids
+from .utils import log_probs_from_logits, reset_position_ids
 
 
 class Actor(nn.Module):
@@ -73,7 +73,7 @@ class Actor(nn.Module):
             else:
                 nf4_config = None
 
-            #There is no AutoModelForConditionalGeneration in transformers. We manually implement it.
+            # There is no AutoModelForConditionalGeneration in transformers. We manually implement it.
             config = AutoConfig.from_pretrained(pretrain_or_model)
             model_cls = get_generation_cls(config)
             self.model = model_cls.from_pretrained(
@@ -200,11 +200,11 @@ class Actor(nn.Module):
         """Returns action log probs"""
         if visual_inputs is None:
             visual_inputs = {}
-        '''
+        """
         for k,v in visual_inputs.items():
             if v.dtype == torch.float32:
                 visual_inputs[k] = v.to(self.model.get_input_embeddings().weight.dtype)
-        '''
+        """
         if not self.packing_samples:
             # https://github.com/OpenRLHF/OpenRLHF/issues/217
             position_ids = attention_mask.long().cumsum(-1) - 1
@@ -218,7 +218,7 @@ class Actor(nn.Module):
                 )
             else:
                 position_ids = reset_position_ids(attention_mask)
-            #position_ids is directly hacked into flash_attn_forward to distinguish between different sequences
+            # position_ids is directly hacked into flash_attn_forward to distinguish between different sequences
             set_hacked_position_ids(position_ids)
             # Real postion_ids will be hacked into the model
             position_ids = None

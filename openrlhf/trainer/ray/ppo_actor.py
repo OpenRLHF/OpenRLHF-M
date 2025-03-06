@@ -323,7 +323,9 @@ class ActorModelRayActor(BasePPORole):
                 if any(name.startswith(prefix) for prefix in strategy.args.freeze_prefix):
                     param.requires_grad = False
                     frozen_count += 1
-            strategy.print(f"Froze {frozen_count}/{total_params} parameters based on prefixes: {strategy.args.freeze_prefix}")
+            strategy.print(
+                f"Froze {frozen_count}/{total_params} parameters based on prefixes: {strategy.args.freeze_prefix}"
+            )
 
         # configure tokenizer
         if args.train_vlm:
@@ -502,7 +504,7 @@ class ActorModelRayActor(BasePPORole):
             gradient_checkpointing=args.gradient_checkpointing,
             critic_train_remote=critic_train_remote,
             tokenizer=self.tokenizer,
-            processor=self.processor, 
+            processor=self.processor,
             prompt_max_len=args.prompt_max_len,
             value_clip=args.value_clip,
             eps_clip=args.eps_clip,

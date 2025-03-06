@@ -74,6 +74,7 @@ def convert_ring_attn_params(sequences, attention_mask, packed_seq_lens, ring_at
     update_ring_attn_params(packed_seq_lens, total_seq_len)
     return sequences, attention_mask, position_ids
 
+
 def pad_sequences(sequences, attention_mask, num_actions, packed_seq_lens, ring_attn_group, pad_token_id=0):
     # Pads the input sequences and attention mask to ensure that their lengths are multiples of the ring attention size.
     ring_attn_size = dist.get_world_size(group=ring_attn_group)
@@ -82,7 +83,9 @@ def pad_sequences(sequences, attention_mask, num_actions, packed_seq_lens, ring_
         pad_len = (ring_attn_size - seqlen % ring_attn_size) % ring_attn_size
         padded = torch.tensor([pad_token_id] * pad_len, device=sequences.device, dtype=sequences.dtype).unsqueeze(0)
         sequences = torch.cat([sequences, padded], dim=1)
-        attention_mask = torch.cat([attention_mask, (len(sequences) + 1) * torch.ones(1, pad_len, device="cuda", dtype=torch.float)], dim=-1)
+        attention_mask = torch.cat(
+            [attention_mask, (len(sequences) + 1) * torch.ones(1, pad_len, device="cuda", dtype=torch.float)], dim=-1
+        )
     elif isinstance(sequences, list):
         seqlen = len(sequences)
         pad_len = (ring_attn_size - seqlen % ring_attn_size) % ring_attn_size
@@ -94,7 +97,18 @@ def pad_sequences(sequences, attention_mask, num_actions, packed_seq_lens, ring_
     packed_seq_lens[-1] += pad_len
     return pad_len, sequences, attention_mask, num_actions, packed_seq_lens
 
-def unpad_sequences(pad_len, sequences, attention_mask, num_actions, packed_seq_lens, ring_attn_group, action_log_probs=None, values=None, kl=None):
+
+def unpad_sequences(
+    pad_len,
+    sequences,
+    attention_mask,
+    num_actions,
+    packed_seq_lens,
+    ring_attn_group,
+    action_log_probs=None,
+    values=None,
+    kl=None,
+):
     # Removes the padding from the input sequences, attention mask, and other optional tensors after padding.
     if pad_len > 0:
         sequences = sequences[:, :-pad_len]
@@ -109,44 +123,55 @@ def unpad_sequences(pad_len, sequences, attention_mask, num_actions, packed_seq_
             kl = kl[:, :-pad_len]
     return sequences, attention_mask, num_actions, packed_seq_lens, action_log_probs, values, kl
 
+
 HACKED_POSITION_IDS = None
 
-#Both ring and our hack substitute flash_attn. This func must be called after ring's substitue_hf_flash_attn.
+
+# Both ring and our hack substitute flash_attn. This func must be called after ring's substitue_hf_flash_attn.
 def substitute_ring_flash_attn():
     raw_flash_attention_forward = transformers.modeling_flash_attention_utils._flash_attention_forward
-    def _hacked_flash_attention_forward(*args,**kwargs):
+
+    def _hacked_flash_attention_forward(*args, **kwargs):
         global HACKED_POSITION_IDS
         if HACKED_POSITION_IDS is not None:
-            kwargs['position_ids'] = HACKED_POSITION_IDS
-        return raw_flash_attention_forward(*args,**kwargs)
+            kwargs["position_ids"] = HACKED_POSITION_IDS
+        return raw_flash_attention_forward(*args, **kwargs)
 
     transformers.modeling_flash_attention_utils._flash_attention_forward = _hacked_flash_attention_forward
+
 
 def set_hacked_position_ids(position_ids):
     global HACKED_POSITION_IDS
     HACKED_POSITION_IDS = position_ids
 
+
 def clear_hacked_position_ids():
     global HACKED_POSITION_IDS
     HACKED_POSITION_IDS = None
 
+
 raw_get_rope_index = Qwen2_5_VLForConditionalGeneration.get_rope_index
+
+
 def hacked_get_rope_index(*args, **kwargs):
     global HACKED_POSITION_IDS
     position_ids, mrope_position_deltas = raw_get_rope_index(*args, **kwargs)
     if HACKED_POSITION_IDS is None:
         return position_ids, mrope_position_deltas
     for i in range(HACKED_POSITION_IDS.size(0)):
-        seq_idxes = torch.nonzero(HACKED_POSITION_IDS[i]==0)[:,0]
-        seq_idxes = torch.cat([seq_idxes, torch.tensor([HACKED_POSITION_IDS.size(1)],device=seq_idxes.device)], dim=0)
+        seq_idxes = torch.nonzero(HACKED_POSITION_IDS[i] == 0)[:, 0]
+        seq_idxes = torch.cat([seq_idxes, torch.tensor([HACKED_POSITION_IDS.size(1)], device=seq_idxes.device)], dim=0)
         st = 0
         for seq_idx in seq_idxes:
             if st == 0 and seq_idx == 0:
                 continue
-            #shape: [3,bs,seq_len]
-            raw_seq_position_ids = position_ids[:,i,st:seq_idx]
-            position_ids[:,i,st:seq_idx] = raw_seq_position_ids - raw_seq_position_ids[:,:1] + HACKED_POSITION_IDS[i,st]
+            # shape: [3,bs,seq_len]
+            raw_seq_position_ids = position_ids[:, i, st:seq_idx]
+            position_ids[:, i, st:seq_idx] = (
+                raw_seq_position_ids - raw_seq_position_ids[:, :1] + HACKED_POSITION_IDS[i, st]
+            )
             st = seq_idx
     return position_ids, mrope_position_deltas
+
 
 Qwen2_5_VLForConditionalGeneration.get_rope_index = hacked_get_rope_index

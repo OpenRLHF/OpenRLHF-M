@@ -2,7 +2,6 @@ from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-import torch.nn as nn
 
 
 def compute_approx_kl(
@@ -20,7 +19,7 @@ def compute_approx_kl(
         log_probs_base: Log probabilities of the base distribution.
         action_mask: Mask for actions.
     """
-    
+
     if kl_estimator == "k1":
         log_ratio = log_probs.float() - log_probs_base.float()
         if action_mask is not None:
@@ -35,8 +34,8 @@ def compute_approx_kl(
         log_ratio = log_probs.float() - log_probs_base.float()
         if action_mask is not None:
             log_ratio = log_ratio * action_mask
-        log_ratio = log_ratio ** 2 / 2.0
-        
+        log_ratio = log_ratio**2 / 2.0
+
     # The k3 estimator is the non negative kl approximation in
     # http://joschu.net/blog/kl-approx.html
     if kl_estimator == "k3":
@@ -161,7 +160,7 @@ def load_multimodal_model_for_classification(
 ):
     """
     Load multimodal model for classification tasks
-    
+
     Args:
         model_name_or_path: Model name or path
         num_classes: Number of classification classes
@@ -173,34 +172,33 @@ def load_multimodal_model_for_classification(
         lora_dropout: LoRA dropout probability
         target_modules: LoRA target modules
         vision_tower_lora: Whether to apply LoRA to the vision tower
-        
+
     Returns:
         model: Classification model
         tokenizer: Tokenizer
     """
+    import logging
+
     import torch
     import torch.nn as nn
-    from transformers import AutoTokenizer, AutoProcessor, AutoConfig, AutoModel
-    import logging
-    
+    from transformers import AutoConfig, AutoModel, AutoProcessor, AutoTokenizer
+
     logger = logging.getLogger(__name__)
-    
+
     class MultimodalModelForClassification(nn.Module):
         def __init__(self, base_model, config, num_labels):
             super().__init__()
             self.base_model = base_model
             self.config = config
             self.num_labels = num_labels
-            
+
             hidden_size = config.hidden_size
             self.classifier = nn.Sequential(
-                nn.LayerNorm(hidden_size),
-                nn.Dropout(0.1),
-                nn.Linear(hidden_size, num_labels)
+                nn.LayerNorm(hidden_size), nn.Dropout(0.1), nn.Linear(hidden_size, num_labels)
             )
-            
+
             self._init_weights(self.classifier)
-            
+
         def _init_weights(self, module):
             """Initialize weights"""
             if isinstance(module, nn.Linear):
@@ -210,63 +208,66 @@ def load_multimodal_model_for_classification(
             elif isinstance(module, nn.LayerNorm):
                 module.bias.data.zero_()
                 module.weight.data.fill_(1.0)
-        
+
         def forward(self, input_ids=None, attention_mask=None, pixel_values=None, labels=None, **kwargs):
             """Forward pass"""
             outputs = self.base_model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                pixel_values=pixel_values,
-                **kwargs
+                input_ids=input_ids, attention_mask=attention_mask, pixel_values=pixel_values, **kwargs
             )
-            
+
             if hasattr(outputs, "last_hidden_state"):
                 last_hidden_state = outputs.last_hidden_state
             else:
                 last_hidden_state = getattr(outputs, "hidden_states", outputs[0])
-            
-            pooled_output = last_hidden_state[:, 0, :]  
-            
+
+            pooled_output = last_hidden_state[:, 0, :]
+
             logits = self.classifier(pooled_output)
-            
+
             loss = None
             if labels is not None:
                 loss_fct = nn.CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            
-            return type('ModelOutput', (), {
-                'loss': loss,
-                'logits': logits,
-                'hidden_states': outputs.hidden_states if hasattr(outputs, 'hidden_states') else None,
-                'attentions': outputs.attentions if hasattr(outputs, 'attentions') else None,
-                'last_hidden_state': last_hidden_state,
-            })
-    
+
+            return type(
+                "ModelOutput",
+                (),
+                {
+                    "loss": loss,
+                    "logits": logits,
+                    "hidden_states": outputs.hidden_states if hasattr(outputs, "hidden_states") else None,
+                    "attentions": outputs.attentions if hasattr(outputs, "attentions") else None,
+                    "last_hidden_state": last_hidden_state,
+                },
+            )
+
     config_kwargs = {}
     if bf16:
         config_kwargs["torch_dtype"] = torch.bfloat16
     else:
         config_kwargs["torch_dtype"] = torch.float16
-    
+
     if use_flash_attention_2:
         config_kwargs["attn_implementation"] = "flash_attention_2"
-    
+
     if load_in_4bit:
         from transformers import BitsAndBytesConfig
+
         config_kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16 if bf16 else torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
         )
-    
+
     logger.info(f"Loading multimodal model: {model_name_or_path}")
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     processor = AutoProcessor.from_pretrained(model_name_or_path)
     config = AutoConfig.from_pretrained(model_name_or_path)
-    
+
     try:
         from transformers import AutoModelForVisionLanguageModeling
+
         base_model = AutoModelForVisionLanguageModeling.from_pretrained(
             model_name_or_path,
             **config_kwargs,
@@ -275,6 +276,7 @@ def load_multimodal_model_for_classification(
     except (ImportError, ValueError):
         try:
             from transformers import AutoModelForVisionTextDual
+
             base_model = AutoModelForVisionTextDual.from_pretrained(
                 model_name_or_path,
                 **config_kwargs,
@@ -286,17 +288,17 @@ def load_multimodal_model_for_classification(
                 model_name_or_path,
                 **config_kwargs,
             )
-    
+
     model = MultimodalModelForClassification(base_model, config, num_classes)
-    
+
     if lora_rank is not None and lora_rank > 0:
-        from peft import LoraConfig, get_peft_model, TaskType
-        
+        from peft import LoraConfig, TaskType, get_peft_model
+
         logger.info(f"Applying LoRA with rank: {lora_rank}, alpha: {lora_alpha}")
-        
+
         if target_modules is None or target_modules == "all-linear":
             target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-        
+
         lora_config = LoraConfig(
             r=lora_rank,
             lora_alpha=lora_alpha,
@@ -304,15 +306,15 @@ def load_multimodal_model_for_classification(
             lora_dropout=lora_dropout,
             bias="none",
             task_type=TaskType.SEQ_CLS,
-            modules_to_save=["classifier", "vision_tower"] if vision_tower_lora else ["classifier"]
+            modules_to_save=["classifier", "vision_tower"] if vision_tower_lora else ["classifier"],
         )
-        
+
         if vision_tower_lora:
             logger.info("Applying LoRA to vision tower")
-        
+
         model = get_peft_model(model, lora_config)
         model.print_trainable_parameters()
-    
+
     model.processor = processor
-    
+
     return model, tokenizer

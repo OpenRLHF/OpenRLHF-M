@@ -6,9 +6,9 @@ from typing import List, Optional
 import torch
 import torch.nn.functional as F
 
-
-from .experience_maker import Experience
 from .data_processor import BaseDataProcessor
+from .experience_maker import Experience
+
 
 @dataclass
 class BufferItem:
@@ -66,10 +66,10 @@ def split_experience_batch(experience: Experience, data_processor: Optional[Base
             batch_kwargs[i][key] = v
     if data_processor is not None:
         visual_inputs_batch = experience.visual_inputs
-        visual_inputs_batch['input_ids'] = experience.sequences
+        visual_inputs_batch["input_ids"] = experience.sequences
         visual_inputs_chunks = data_processor.split_input_batch(visual_inputs_batch)
         for i, visual_inputs in enumerate(visual_inputs_chunks):
-            visual_inputs.pop('input_ids')
+            visual_inputs.pop("input_ids")
             batch_kwargs[i]["visual_inputs"] = visual_inputs
     else:
         for i in range(batch_size):
@@ -101,7 +101,9 @@ def zero_pad_sequences(sequences: List[torch.Tensor], side: str = "left") -> tor
     return torch.stack(padded_sequences, dim=0)
 
 
-def make_experience_batch(items: List[BufferItem], data_processor: Optional[BaseDataProcessor], packing_samples=False) -> Experience:
+def make_experience_batch(
+    items: List[BufferItem], data_processor: Optional[BaseDataProcessor], packing_samples=False
+) -> Experience:
     kwargs = {}
     keys = (
         "sequences",
@@ -179,11 +181,11 @@ class NaiveReplayBuffer(ABC):
     """
 
     def __init__(
-        self, 
-        sample_batch_size: int, 
-        data_processor: Optional[BaseDataProcessor] = None, 
-        limit: int = 0, 
-        cpu_offload: bool = True, 
+        self,
+        sample_batch_size: int,
+        data_processor: Optional[BaseDataProcessor] = None,
+        limit: int = 0,
+        cpu_offload: bool = True,
         packing_samples: bool = False,
         drop_maxlen: bool = False,
         maxlen: int = 10**8,
