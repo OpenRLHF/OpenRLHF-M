@@ -43,5 +43,7 @@ ray job submit --address="http://127.0.0.1:8265" \
    --gradient_checkpointing \
    --save_steps 10 \
    --ckpt_path /openrlhf/examples/test_scripts/ckpt/qwen2_5vl_3b \
-   --save_hf_ckpt \
-   --train_vlm
+   --save_hf_ckpt
+
+   # for visual dataset
+   # --train_vlm
