@@ -5,7 +5,6 @@ from .ppo_trainer import PPOTrainer
 from .prm_trainer import ProcessRewardModelTrainer
 from .rm_trainer import RewardModelTrainer
 from .sft_trainer import SFTTrainer
-from .multimodal_classification_trainer import MultimodalClassificationTrainer  
 
 __all__ = [
     "DPOTrainer",
@@ -15,5 +14,4 @@ __all__ = [
     "ProcessRewardModelTrainer",
     "RewardModelTrainer",
     "SFTTrainer",
-    "MultimodalClassificationTrainer"
 ]
