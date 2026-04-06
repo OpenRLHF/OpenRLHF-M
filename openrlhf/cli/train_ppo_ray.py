@@ -337,12 +337,16 @@ if __name__ == "__main__":
     parser.add_argument("--aux_loss_coef", type=float, default=0, help="MoE balancing loss")
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
     parser.add_argument("--reward_clip_range", type=float, nargs=2, default=(-10, 10), help="Reward clip range")
-    parser.add_argument("--freeze_prefix", type=str, nargs="+", default=None,
-        help="List of parameter name prefixes to freeze during training"
+    parser.add_argument(
+        "--freeze_prefix",
+        type=str,
+        nargs="+",
+        default=None,
+        help="List of parameter name prefixes to freeze during training",
     )
     parser.add_argument("--drop_maxlen", action="store_true", default=False)
-    parser.add_argument("--max_pixels",type=int,default=640*28*28,help="Max pixels for image")
-    parser.add_argument("--min_pixels",type=int,default=4*28*28,help="Min pixels for image")
+    parser.add_argument("--max_pixels", type=int, default=640 * 28 * 28, help="Max pixels for image")
+    parser.add_argument("--min_pixels", type=int, default=4 * 28 * 28, help="Min pixels for image")
     # Reinforce
     parser.add_argument(
         "--advantage_estimator",

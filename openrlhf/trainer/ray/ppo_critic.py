@@ -9,9 +9,9 @@ from tqdm import tqdm
 from transformers.trainer import get_scheduler
 
 from openrlhf.models import get_llm_for_sequence_regression
+from openrlhf.models.lmm_kits.utils import get_data_processor
 from openrlhf.trainer import PPOTrainer
 from openrlhf.trainer.ppo_utils import Experience
-from openrlhf.models.lmm_kits.utils import get_data_processor
 from openrlhf.utils.deepspeed import DeepspeedStrategy
 from openrlhf.utils.deepspeed.deepspeed_utils import offload_deepspeed_states, reload_deepspeed_states
 
@@ -151,7 +151,7 @@ class CriticModelRayActor(BasePPORole):
             prompt_max_len=args.prompt_max_len,
             value_clip=args.value_clip,
             eps_clip=args.eps_clip,
-            data_processor=self.data_processor
+            data_processor=self.data_processor,
         )
 
     def forward(
@@ -206,7 +206,6 @@ class CriticModelRayActor(BasePPORole):
             self.data_processor.processor,
             args.save_path + "_critic",
         )
-
 
     def save_checkpoint(self, tag):
         args = self.strategy.args

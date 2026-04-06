@@ -1,10 +1,21 @@
-from ..base.patch import BasePatch
 import torch
+
+from ..base.patch import BasePatch
+
 
 class Qwen2_5_VLPatch(BasePatch):
     def _add_get_inputs_embeds():
         from transformers import Qwen2_5_VLForConditionalGeneration
-        def get_inputs_embeds(self, input_ids, image_grid_thw=None, video_grid_thw=None, pixel_values=None, pixel_values_videos=None, **kwargs):
+
+        def get_inputs_embeds(
+            self,
+            input_ids,
+            image_grid_thw=None,
+            video_grid_thw=None,
+            pixel_values=None,
+            pixel_values_videos=None,
+            **kwargs,
+        ):
             inputs_embeds = self.model.embed_tokens(input_ids)
             if pixel_values is not None:
                 pixel_values = pixel_values.type(self.visual.dtype)
@@ -47,33 +58,47 @@ class Qwen2_5_VLPatch(BasePatch):
 
     def _add_get_position_ids():
         from transformers import Qwen2_5_VLForConditionalGeneration
+
         def get_position_ids(self, input_ids, image_grid_thw=None, video_grid_thw=None, attention_mask=None, **kwargs):
-            position_ids,mrope_position_deltas = self.get_rope_index(input_ids=input_ids, image_grid_thw=image_grid_thw, video_grid_thw=video_grid_thw, attention_mask=attention_mask)
+            position_ids, mrope_position_deltas = self.get_rope_index(
+                input_ids=input_ids,
+                image_grid_thw=image_grid_thw,
+                video_grid_thw=video_grid_thw,
+                attention_mask=attention_mask,
+            )
             return position_ids
+
         Qwen2_5_VLForConditionalGeneration.get_position_ids = get_position_ids
 
     def _add_offset_split_position_ids():
         from transformers import Qwen2_5_VLForConditionalGeneration
-        def offset_split_position_ids(self,position_ids,hacked_position_ids):
+
+        def offset_split_position_ids(self, position_ids, hacked_position_ids):
             new_position_ids = position_ids.clone()
             for i in range(hacked_position_ids.size(0)):
-                seq_idxes = torch.nonzero(hacked_position_ids[i]==0)[:,0]
-                seq_idxes = torch.cat([seq_idxes, torch.tensor([hacked_position_ids.size(1)],device=seq_idxes.device)], dim=0)
+                seq_idxes = torch.nonzero(hacked_position_ids[i] == 0)[:, 0]
+                seq_idxes = torch.cat(
+                    [seq_idxes, torch.tensor([hacked_position_ids.size(1)], device=seq_idxes.device)], dim=0
+                )
                 st = 0
                 for seq_idx in seq_idxes:
                     if st == 0 and seq_idx == 0:
                         continue
-                    #shape: [3,bs,seq_len]
-                    raw_seq_position_ids = position_ids[:,i,st:seq_idx]
-                    new_position_ids[:,i,st:seq_idx] = raw_seq_position_ids - raw_seq_position_ids[:,:1] + hacked_position_ids[i,st]
+                    # shape: [3,bs,seq_len]
+                    raw_seq_position_ids = position_ids[:, i, st:seq_idx]
+                    new_position_ids[:, i, st:seq_idx] = (
+                        raw_seq_position_ids - raw_seq_position_ids[:, :1] + hacked_position_ids[i, st]
+                    )
                     st = seq_idx
             return new_position_ids
+
         Qwen2_5_VLForConditionalGeneration.offset_split_position_ids = offset_split_position_ids
-    
+
     @classmethod
     def _load_all_patches(cls):
         cls._add_get_inputs_embeds()
         cls._add_get_position_ids()
         cls._add_offset_split_position_ids()
+
 
 Patch = Qwen2_5_VLPatch()

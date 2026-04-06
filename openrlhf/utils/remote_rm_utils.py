@@ -37,7 +37,7 @@ def remote_rm_fn(api_url, queries, prompts, labels, score_key="rewards"):
     score_key: RM score key
     """
     responses = request_api_wrapper(api_url, {"query": queries, "prompts": prompts, "labels": labels}, score_key)
-    return {k:torch.tensor(v) for k,v in responses.items()}
+    return {k: torch.tensor(v) for k, v in responses.items()}
 
 
 @ray.remote

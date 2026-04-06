@@ -324,10 +324,12 @@ class ActorModelRayActor(BasePPORole):
                 if any(name.startswith(prefix) for prefix in strategy.args.freeze_prefix):
                     param.requires_grad = False
                     frozen_count += 1
-            strategy.print(f"Froze {frozen_count}/{total_params} parameters based on prefixes: {strategy.args.freeze_prefix}")
+            strategy.print(
+                f"Froze {frozen_count}/{total_params} parameters based on prefixes: {strategy.args.freeze_prefix}"
+            )
 
         # configure tokenizer
-        
+
         self.data_processor = get_data_processor(
             pretrain, actor.model, "left", strategy, use_fast=not strategy.args.disable_fast_tokenizer
         )
