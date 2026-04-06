@@ -1,22 +1,18 @@
-import os
 import time
 from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Union, Dict
+from typing import Dict, List, Optional, Tuple, Union
 
 import ray
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torch.distributed as dist
-import torch.nn.functional as F
 from tqdm import tqdm
 
 from openrlhf.models.actor import Actor
 from openrlhf.models.ring_attn_utils import pad_sequences, unpad_sequences
 from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean, unpacking_samples
-from openrlhf.models.ring_attn_utils import pad_sequences, unpad_sequences
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
 
@@ -182,7 +178,6 @@ class NaiveExperienceMaker(ABC):
             spec.loader.exec_module(reward_module)
             self.custom_reward_func = reward_module.reward_func
 
-
     @torch.no_grad()
     def make_experience_list(
         self, all_prompts: Union[str, List[str]], all_labels, **generate_kwargs
@@ -298,13 +293,12 @@ class NaiveExperienceMaker(ABC):
         samples_list = []
         for i in range(0, len(all_prompts), args.micro_rollout_batch_size):
             prompts = all_prompts[i : i + args.micro_rollout_batch_size]
-    
+
             inputs = self.data_processor(prompts, self.prompt_max_len, device="cuda")
             visual_inputs = {}
-            for k,v in inputs.items():
+            for k, v in inputs.items():
                 if k not in ["input_ids", "attention_mask"]:
                     visual_inputs[k] = v
-
 
             labels = all_labels[i : i + args.micro_rollout_batch_size]
             sequences, attention_mask, action_mask = self.actor.generate(**inputs, **generate_kwargs)
@@ -349,7 +343,9 @@ class NaiveExperienceMaker(ABC):
 
         # init log probs
         if self.initial_model is not None:
-            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask, visual_inputs=visual_inputs)
+            base_action_log_probs = self.initial_model(
+                sequences, num_actions, attention_mask, visual_inputs=visual_inputs
+            )
         else:
             base_action_log_probs = None
 
@@ -385,7 +381,7 @@ class NaiveExperienceMaker(ABC):
         else:
             kl = torch.zeros_like(action_log_probs, dtype=action_log_probs.dtype, device=action_log_probs.device)
 
-        assert isinstance(r,dict)
+        assert isinstance(r, dict)
         total_reward = r.pop("rewards")
         specific_rewards = r
 
@@ -395,7 +391,7 @@ class NaiveExperienceMaker(ABC):
             "response_length": samples.response_length,
             "total_length": samples.total_length,
             "num_actions": num_actions,
-            **specific_rewards
+            **specific_rewards,
         }
         # reset model state
         self.actor.train()
@@ -413,7 +409,7 @@ class NaiveExperienceMaker(ABC):
             action_mask,
             info,
             kl,
-            visual_inputs=visual_inputs
+            visual_inputs=visual_inputs,
         )
 
     @torch.no_grad()
@@ -621,17 +617,17 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         )
         visual_inputs_cpu = None
         if visual_inputs is not None:
-            visual_inputs_cpu = {k: v.to("cpu") for k, v in visual_inputs.items()}        
+            visual_inputs_cpu = {k: v.to("cpu") for k, v in visual_inputs.items()}
         # init log probs
         if self.initial_model is not None:
             base_action_log_probs_ref = self.initial_model.forward.remote(
-            sequences_cpu, 
-            num_actions, 
-            attention_mask_cpu, 
-            logps_allgather=True,
-            packed_seq_lens=packed_seq_lens,
-            visual_inputs=visual_inputs_cpu
-        )
+                sequences_cpu,
+                num_actions,
+                attention_mask_cpu,
+                logps_allgather=True,
+                packed_seq_lens=packed_seq_lens,
+                visual_inputs=visual_inputs_cpu,
+            )
 
             if args.colocate_actor_ref or args.colocate_all_models:
                 ray.get([base_action_log_probs_ref])
@@ -642,7 +638,11 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         # values
         if self.critic is not None:
             value_ref = self.critic.forward.remote(
-                sequences_cpu, num_actions, attention_mask_cpu, packed_seq_lens=packed_seq_lens, visual_inputs=visual_inputs_cpu
+                sequences_cpu,
+                num_actions,
+                attention_mask_cpu,
+                packed_seq_lens=packed_seq_lens,
+                visual_inputs=visual_inputs_cpu,
             )
             # avoid CUDA OOM when colocate models
             if args.colocate_critic_reward or args.colocate_all_models:
@@ -658,7 +658,11 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             for rm in self.reward_model:
                 r_refs.append(
                     rm.forward.remote(
-                        sequences_cpu, attention_mask_cpu, packed_seq_lens=packed_seq_lens, pad_sequence=True, visual_inputs=visual_inputs_cpu
+                        sequences_cpu,
+                        attention_mask_cpu,
+                        packed_seq_lens=packed_seq_lens,
+                        pad_sequence=True,
+                        visual_inputs=visual_inputs_cpu,
                     )
                 )
         else:
@@ -688,13 +692,13 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
 
         # log probs
         action_log_probs = self.actor(
-            sequences, 
-            num_actions, 
-            attention_mask, 
+            sequences,
+            num_actions,
+            attention_mask,
             ring_attn_group=self.strategy.ring_attn_group,
             logps_allgather=True,
             packed_seq_lens=packed_seq_lens,
-            visual_inputs=visual_inputs
+            visual_inputs=visual_inputs,
         )
         actor_value_rm_time = time.time() - start
 
@@ -709,10 +713,10 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
         if value is not None:
             value = value.to(device)
 
-        total_rewards = [r.pop('rewards').to(device) if isinstance(r,dict) else r.to(device) for r in rewards]
+        total_rewards = [r.pop("rewards").to(device) if isinstance(r, dict) else r.to(device) for r in rewards]
         specific_rewards = {}
         for r in rewards:
-            if isinstance(r,dict):
+            if isinstance(r, dict):
                 for k in r.keys():
                     r[k] = r[k].to(device)
                 specific_rewards.update(r)
@@ -774,7 +778,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             "response_length": samples.response_length,
             "total_length": samples.total_length,
             "num_actions": num_actions,
-            **specific_rewards
+            **specific_rewards,
         }
 
         if self.strategy.args.perf:
@@ -792,7 +796,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             action_mask,
             info,
             kl,
-            visual_inputs=visual_inputs
+            visual_inputs=visual_inputs,
         )
 
         self.actor.train()  # reset model state
@@ -800,6 +804,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
 
     def _generate_vllm(self, all_prompts: List[str], all_labels, **kwargs) -> List[Samples]:
         from vllm import SamplingParams
+
         # round-robin load balance
         rank = torch.distributed.get_rank() // self.strategy.ring_attn_size
         world_size = torch.distributed.get_world_size() // self.strategy.ring_attn_size
@@ -835,18 +840,20 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             if messages:
                 prompts = self.data_processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                 images = [self.data_processor.get_images_from_messages(m) for m in messages]
-                vllm_inputs = [{
+                vllm_inputs = [
+                    {
                         "prompt": p,
-                        "multi_modal_data":{"image": imgs} if imgs else None,
+                        "multi_modal_data": {"image": imgs} if imgs else None,
                         "mm_processor_kwargs": {
-                            "min_pixels": kwargs.get("min_pixels", 4*28*28),
-                            "max_pixels": kwargs.get("max_pixels", 640*28*28),
+                            "min_pixels": kwargs.get("min_pixels", 4 * 28 * 28),
+                            "max_pixels": kwargs.get("max_pixels", 640 * 28 * 28),
                         },
-                    } for p, imgs in zip(prompts,images)]
+                    }
+                    for p, imgs in zip(prompts, images)
+                ]
                 refs.append(
                     llm.add_requests.remote(rank, sampling_params=sampling_params, vllm_vision_input=vllm_inputs)
                 )
-
 
         ray.get(refs)
 
@@ -901,7 +908,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                 attention_mask = attention_mask.to("cuda")
                 action_mask = action_mask.to("cuda")
                 # Collect for visual input
-                
+
                 visual_inputs = self.data_processor(prompts, self.prompt_max_len, device="cuda")
                 visual_inputs.pop("input_ids")
                 visual_inputs.pop("attention_mask")

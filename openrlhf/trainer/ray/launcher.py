@@ -5,7 +5,6 @@ from typing import Callable, Dict, List, Optional, Type
 
 import ray
 import torch
-import torch.distributed as dist
 from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
@@ -95,7 +94,7 @@ class ReferenceModelRayActor(BasePPORole):
             visual_inputs = {}
         device = torch.cuda.current_device()
         with torch.no_grad():
-            visual_inputs = {k:v.to(device) for k,v in visual_inputs.items()}
+            visual_inputs = {k: v.to(device) for k, v in visual_inputs.items()}
             log_probs = self.model(
                 sequences.to(device),
                 num_actions,
@@ -148,7 +147,7 @@ class RewardModelRayActor(BasePPORole):
         device = torch.cuda.current_device()
         if visual_inputs is None:
             visual_inputs = {}
-        visual_inputs = {k:v.to(device) for k,v in visual_inputs.items()}
+        visual_inputs = {k: v.to(device) for k, v in visual_inputs.items()}
         with torch.no_grad():
             reward = self.model(
                 sequences.to(device),

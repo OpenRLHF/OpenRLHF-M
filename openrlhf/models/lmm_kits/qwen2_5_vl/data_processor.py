@@ -1,5 +1,4 @@
-import os
-from typing import List, Dict
+from typing import Dict, List
 
 import torch
 from qwen_vl_utils import process_vision_info
@@ -20,9 +19,7 @@ class Qwen2_5_VLDataProcessor(BaseDataProcessor):
     ) -> Dict:
         messages = self._format_messages(messages)
         processor = self.processor
-        texts = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        texts = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         image_inputs, video_inputs = process_vision_info(messages)
 
         batch = processor(
@@ -44,7 +41,7 @@ class Qwen2_5_VLDataProcessor(BaseDataProcessor):
         batch = {}
         # collect all keys
         for inp in inputs:
-            batch.update({k:None for k,v in inp.items() if v is not None})
+            batch.update({k: None for k, v in inp.items() if v is not None})
         for k in batch.keys():
             if k in ["input_ids", "attention_mask"]:
                 batch[k] = torch.stack([inp[k] for inp in inputs if k in inp], dim=0)
@@ -67,12 +64,8 @@ class Qwen2_5_VLDataProcessor(BaseDataProcessor):
                 for i in range(batch_size):
                     batch_kwargs[i][k] = None
 
-        if "pixel_values" in keys and (
-            "input_ids" not in keys or "image_grid_thw" not in keys
-        ):
-            raise ValueError(
-                "Cannot split batch with pixel_values without input_ids and image_grid_thw"
-            )
+        if "pixel_values" in keys and ("input_ids" not in keys or "image_grid_thw" not in keys):
+            raise ValueError("Cannot split batch with pixel_values without input_ids and image_grid_thw")
         if "image_grid_thw" in keys and ("input_ids" not in keys):
             raise ValueError("Cannot split batch with image_grid_thw without input_ids")
         for k in ["input_ids", "attention_mask"]:
@@ -114,7 +107,8 @@ class Qwen2_5_VLDataProcessor(BaseDataProcessor):
             assert len(thws) == 0
             assert len(pixel_values) == 0
         return batch_kwargs
-    
+
+
 DataProcessor = Qwen2_5_VLDataProcessor
 
 __all__ = ["DataProcessor"]

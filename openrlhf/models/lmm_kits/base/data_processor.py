@@ -1,17 +1,19 @@
 import json
-import os
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Dict
+from typing import Dict, List, Optional, Union
+
 import torch
-from transformers.processing_utils import ProcessorMixin
 from qwen_vl_utils import process_vision_info
+from transformers.processing_utils import ProcessorMixin
+
 
 class BaseDataProcessor(ABC):
-    def __init__(self, processor: ProcessorMixin,min_pixels:int,max_pixels:int):
+    def __init__(self, processor: ProcessorMixin, min_pixels: int, max_pixels: int):
         super().__init__()
         self.processor = processor
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+
     @abstractmethod
     def __call__(
         self,
@@ -25,24 +27,24 @@ class BaseDataProcessor(ABC):
     ) -> Dict:
         raise NotImplementedError
 
-    def _add_pixel_bounds(self,messages:List[Dict]) -> List[Dict]:
-       DEFAULT_MIN_PIXELS = self.min_pixels
-       DEFAULT_MAX_PIXELS = self.max_pixels
+    def _add_pixel_bounds(self, messages: List[Dict]) -> List[Dict]:
+        DEFAULT_MIN_PIXELS = self.min_pixels
+        DEFAULT_MAX_PIXELS = self.max_pixels
 
-       def process_content(content):
-           if isinstance(content, list):
-               for item in content:
-                   if isinstance(item, dict) and item.get("type") == "image":
-                       if "min_pixels" not in item:
-                           item["min_pixels"] = DEFAULT_MIN_PIXELS
-                       if "max_pixels" not in item:
-                           item["max_pixels"] = DEFAULT_MAX_PIXELS
-           return content
+        def process_content(content):
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image":
+                        if "min_pixels" not in item:
+                            item["min_pixels"] = DEFAULT_MIN_PIXELS
+                        if "max_pixels" not in item:
+                            item["max_pixels"] = DEFAULT_MAX_PIXELS
+            return content
 
-       for message in messages:
-           for msg in message:
-               msg["content"] = process_content(msg["content"])
-       return messages
+        for message in messages:
+            for msg in message:
+                msg["content"] = process_content(msg["content"])
+        return messages
 
     @abstractmethod
     def make_input_batch(self, inputs: List[Dict]) -> Dict:
@@ -70,18 +72,15 @@ class BaseDataProcessor(ABC):
         add_generation_prompt: bool = True,
     ) -> List[str]:
         messages = self._format_messages(messages)
-        
+
         return self.processor.apply_chat_template(
             messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt
         )
 
-    def get_images_from_messages(
-        self, messages: Union[Dict, List[str], str]
-    ) -> List[Dict]:
+    def get_images_from_messages(self, messages: Union[Dict, List[str], str]) -> List[Dict]:
         messages = self._format_messages(messages)
         image_inputs, _ = process_vision_info(messages)
         return image_inputs
-
 
     @property
     def pad_token_id(self) -> int:
